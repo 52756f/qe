@@ -198,6 +198,10 @@ func (e *Editor) isInSelection(y, x int) bool {
 // deleteSelection löscht den ausgewählten Text und setzt den Cursor an den Auswahlstart
 func (e *Editor) deleteSelection() {
 	sy, sx, ey, ex := e.selBounds()
+	if sy == ey && sx == ex {
+		e.selActive = false
+		return
+	}
 	suffix := append([]rune{}, e.lines[ey][ex:]...)
 	e.lines[sy] = append(e.lines[sy][:sx], suffix...)
 	e.lines = append(e.lines[:sy+1], e.lines[ey+1:]...)
@@ -386,7 +390,7 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 	if e.selActive {
 		switch ev.Key() {
-		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune:
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter:
 			// diese Tasten verwalten die Auswahl selbst
 		default:
 			e.selActive = false
@@ -395,6 +399,9 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 
 	switch ev.Key() {
 	case tcell.KeyEnter:
+		if e.selActive {
+			e.deleteSelection()
+		}
 		currentLine := e.lines[e.cursorY]
 		leftPart := append([]rune{}, currentLine[:e.cursorX]...)
 		rightPart := append([]rune{}, currentLine[e.cursorX:]...)
