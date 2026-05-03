@@ -12,7 +12,15 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
+
+const tabWidth = 4
+
+type undoState struct {
+	lines   [][]rune
+	cursorX int
+	cursorY int
+}
 
 type promptKind int
 
@@ -43,6 +51,8 @@ type Editor struct {
 	exitAfterSave bool
 	hlStyles      [][]tcell.Style // Syntax-Highlighting-Stile pro Zeichen
 	hlDirty       bool            // Highlighting muss neu berechnet werden
+	undoStack     []undoState
+	lastWasRune   bool // letzter Edit war Zeicheneingabe (für Undo-Gruppierung)
 }
 
 // tokenStyle bildet chroma-Tokentypen auf tcell-Stile ab
@@ -131,6 +141,36 @@ func (e *Editor) saveFile() error {
 		e.dirty = false
 	}
 	return err
+}
+
+func calcGutterWidth(lineCount int) int {
+	return len(fmt.Sprintf("%d", lineCount)) + 1
+}
+
+func (e *Editor) pushUndo() {
+	cp := make([][]rune, len(e.lines))
+	for i, line := range e.lines {
+		cp[i] = append([]rune{}, line...)
+	}
+	if len(e.undoStack) >= 1000 {
+		e.undoStack = e.undoStack[1:]
+	}
+	e.undoStack = append(e.undoStack, undoState{lines: cp, cursorX: e.cursorX, cursorY: e.cursorY})
+}
+
+func (e *Editor) applyUndo() {
+	if len(e.undoStack) == 0 {
+		return
+	}
+	s := e.undoStack[len(e.undoStack)-1]
+	e.undoStack = e.undoStack[:len(e.undoStack)-1]
+	e.lines = s.lines
+	e.cursorX = s.cursorX
+	e.cursorY = s.cursorY
+	e.dirty = true
+	e.hlDirty = true
+	e.selActive = false
+	e.lastWasRune = false
 }
 
 // loadFile liest eine Datei und gibt den Inhalt als Zeilen zurück
@@ -354,6 +394,8 @@ func main() {
 				editor.selAnchorY = 0
 				editor.cursorY = len(editor.lines) - 1
 				editor.cursorX = len(editor.lines[editor.cursorY])
+			case tcell.KeyCtrlZ:
+				editor.applyUndo()
 			default:
 				editor.HandleEvent(ev)
 			}
@@ -361,12 +403,13 @@ func main() {
 			col, row := ev.Position()
 			_, height := screen.Size()
 			if ev.Buttons() == tcell.Button1 {
-				if row >= 1 && row < height-1 {
+				gw := calcGutterWidth(len(editor.lines))
+				if row >= 1 && row < height-1 && col >= gw {
 					y := row - 1 + editor.scrollY
 					if y >= len(editor.lines) {
 						y = len(editor.lines) - 1
 					}
-					x := col
+					x := col - gw
 					if x > len(editor.lines[y]) {
 						x = len(editor.lines[y])
 					}
@@ -485,7 +528,7 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 	if e.selActive {
 		switch ev.Key() {
-		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyCtrlC,
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyCtrlC, tcell.KeyTab,
 			tcell.KeyLeft, tcell.KeyRight, tcell.KeyUp, tcell.KeyDown,
 			tcell.KeyHome, tcell.KeyEnd:
 			// diese Tasten verwalten die Auswahl selbst
@@ -496,6 +539,8 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 
 	switch ev.Key() {
 	case tcell.KeyEnter:
+		e.pushUndo()
+		e.lastWasRune = false
 		if e.selActive {
 			e.deleteSelection()
 		}
@@ -512,6 +557,8 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		e.hlDirty = true
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		e.pushUndo()
+		e.lastWasRune = false
 		if e.selActive {
 			e.deleteSelection()
 			return
@@ -534,6 +581,8 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		}
 
 	case tcell.KeyDelete:
+		e.pushUndo()
+		e.lastWasRune = false
 		if e.selActive {
 			e.deleteSelection()
 			return
@@ -644,6 +693,8 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		if e.clipboard == nil {
 			break
 		}
+		e.pushUndo()
+		e.lastWasRune = false
 		if len(e.clipboard) == 1 {
 			newLine := append([]rune{}, e.clipboard[0]...)
 			e.lines = append(e.lines, nil)
@@ -670,6 +721,8 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		e.hlDirty = true
 
 	case tcell.KeyF8:
+		e.pushUndo()
+		e.lastWasRune = false
 		if len(e.lines) == 1 {
 			e.lines[0] = []rune{}
 		} else {
@@ -684,7 +737,30 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		e.dirty = true
 		e.hlDirty = true
 
+	case tcell.KeyTab:
+		if !e.lastWasRune {
+			e.pushUndo()
+		}
+		e.lastWasRune = false
+		if e.selActive {
+			e.deleteSelection()
+		}
+		spaces := tabWidth - (e.cursorX % tabWidth)
+		ins := make([]rune, spaces)
+		for i := range ins {
+			ins[i] = ' '
+		}
+		line := e.lines[e.cursorY]
+		e.lines[e.cursorY] = append(line[:e.cursorX], append(ins, line[e.cursorX:]...)...)
+		e.cursorX += spaces
+		e.dirty = true
+		e.hlDirty = true
+
 	case tcell.KeyRune:
+		if !e.lastWasRune {
+			e.pushUndo()
+		}
+		e.lastWasRune = true
 		if e.selActive {
 			e.deleteSelection()
 		}
@@ -738,19 +814,25 @@ func (e *Editor) Draw() {
 	case promptSearch:
 		bottomMsg = " Suchen: " + string(e.promptInput)
 	default:
-		bottomMsg = " ^S Speichern   ^X Beenden   ^F Suchen   ^A Alles auswählen   ^C Kopieren   ^V Einfügen   F8 Zeile löschen   Home Zeilenanfang   End Zeilenende   PgUp/PgDn Seite "
+		bottomMsg = " ^S Speichern   ^X Beenden   ^Z Rückgängig   ^F Suchen   ^A Alles auswählen   ^C Kopieren   ^V Einfügen   F8 Zeile löschen   Home/End   PgUp/PgDn "
 	}
 	drawBar(e.screen, height-1, width, bottomMsg, barStyle)
 
 	// Textinhalt zeichnen
+	gw := calcGutterWidth(len(e.lines))
+	gutterStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
 	for i := 0; i < textHeight; i++ {
 		lineIdx := e.scrollY + i
 		if lineIdx >= len(e.lines) {
 			break
 		}
 		screenY := i + 1
+		numStr := fmt.Sprintf("%*d ", gw-1, lineIdx+1)
+		for j, ch := range numStr {
+			e.screen.SetContent(j, screenY, ch, nil, gutterStyle)
+		}
 		for x, ch := range e.lines[lineIdx] {
-			if x >= width {
+			if x >= width-gw {
 				break
 			}
 			style := tcell.StyleDefault
@@ -760,7 +842,7 @@ func (e *Editor) Draw() {
 			if e.selActive && e.isInSelection(lineIdx, x) {
 				style = style.Reverse(true)
 			}
-			e.screen.SetContent(x, screenY, ch, nil, style)
+			e.screen.SetContent(x+gw, screenY, ch, nil, style)
 		}
 	}
 
@@ -782,8 +864,8 @@ func (e *Editor) Draw() {
 		}
 	default:
 		screenCursorY := e.cursorY - e.scrollY + 1
-		if e.cursorX < width && screenCursorY >= 1 && screenCursorY <= textHeight {
-			e.screen.ShowCursor(e.cursorX, screenCursorY)
+		if e.cursorX+gw < width && screenCursorY >= 1 && screenCursorY <= textHeight {
+			e.screen.ShowCursor(e.cursorX+gw, screenCursorY)
 		} else {
 			e.screen.HideCursor()
 		}
