@@ -629,6 +629,9 @@ func (e *Editor) Draw() {
 			if e.hlStyles != nil && lineIdx < len(e.hlStyles) && x < len(e.hlStyles[lineIdx]) {
 				style = e.hlStyles[lineIdx][x]
 			}
+			if e.selActive && e.isInSelection(lineIdx, x) {
+				style = style.Reverse(true)
+			}
 			e.screen.SetContent(x, screenY, ch, nil, style)
 		}
 	}
