@@ -457,7 +457,7 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 	if e.selActive {
 		switch ev.Key() {
-		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyF5,
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyF5, tcell.KeyCtrlC,
 			tcell.KeyLeft, tcell.KeyRight, tcell.KeyUp, tcell.KeyDown,
 			tcell.KeyHome, tcell.KeyEnd:
 			// diese Tasten verwalten die Auswahl selbst
@@ -603,7 +603,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 			}
 		}
 
-	case tcell.KeyF5:
+	case tcell.KeyF5, tcell.KeyCtrlC:
 		if e.selActive {
 			e.clipboard = e.selectedText()
 			e.selActive = false
@@ -612,7 +612,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		}
 		e.writeOSC52()
 
-	case tcell.KeyF6:
+	case tcell.KeyF6, tcell.KeyCtrlV:
 		if e.clipboard == nil {
 			break
 		}
@@ -710,7 +710,7 @@ func (e *Editor) Draw() {
 	case promptSearch:
 		bottomMsg = " Suchen: " + string(e.promptInput)
 	default:
-		bottomMsg = " ^S Speichern   ^X Beenden   ^F Suchen   ^A Alles auswählen   F5 Kopieren   F6 Einfügen   F8 Zeile löschen   Del Vorwärts löschen   Home Zeilenanfang   End Zeilenende   PgUp/PgDn Seite "
+		bottomMsg = " ^S Speichern   ^X Beenden   ^F Suchen   ^A Alles auswählen   ^C/F5 Kopieren   ^V/F6 Einfügen   F8 Zeile löschen   Del Vorwärts löschen   Home Zeilenanfang   End Zeilenende   PgUp/PgDn Seite "
 	}
 	drawBar(e.screen, height-1, width, bottomMsg, barStyle)
 
