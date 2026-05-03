@@ -309,6 +309,7 @@ func main() {
 
 	editor.screen = screen
 	defer screen.Fini()
+	defer screen.DisableMouse()
 
 	for {
 		editor.Draw()
@@ -362,7 +363,15 @@ func main() {
 					if x > len(editor.lines[y]) {
 						x = len(editor.lines[y])
 					}
-					if !editor.dragActive {
+					if ev.Modifiers()&tcell.ModShift != 0 {
+						// Shift+Klick: Auswahl vom Cursor zum Klickpunkt aufspannen
+						if !editor.selActive {
+							editor.selAnchorY = editor.cursorY
+							editor.selAnchorX = editor.cursorX
+							editor.selActive = true
+						}
+						editor.dragActive = true
+					} else if !editor.dragActive {
 						editor.selAnchorY = y
 						editor.selAnchorX = x
 						editor.selActive = true
