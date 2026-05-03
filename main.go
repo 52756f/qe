@@ -1,9 +1,9 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -241,8 +241,8 @@ func (e *Editor) extendSel() {
 	}
 }
 
-// writeOSC52 schreibt den Inhalt der Zwischenablage via OSC 52 in die Systemzwischenablage
-func (e *Editor) writeOSC52() {
+// writeClipboard schreibt den Inhalt der Zwischenablage in die Systemzwischenablage (xclip oder xsel)
+func (e *Editor) writeClipboard() {
 	if len(e.clipboard) == 0 {
 		return
 	}
@@ -253,16 +253,16 @@ func (e *Editor) writeOSC52() {
 		}
 		sb.WriteString(string(line))
 	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(sb.String()))
-	seq := "\033]52;c;" + encoded + "\007"
-	if tty, ok := e.screen.Tty(); ok {
-		tty.Write([]byte(seq))
-		return
-	}
-	// Fallback: direkt auf /dev/tty schreiben
-	if f, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
-		f.WriteString(seq)
-		f.Close()
+	text := sb.String()
+	for _, args := range [][]string{
+		{"xclip", "-selection", "clipboard"},
+		{"xsel", "--clipboard", "--input"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Stdin = strings.NewReader(text)
+		if cmd.Run() == nil {
+			return
+		}
 	}
 }
 
@@ -610,7 +610,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		} else {
 			e.clipboard = [][]rune{append([]rune{}, e.lines[e.cursorY]...)}
 		}
-		e.writeOSC52()
+		e.writeClipboard()
 
 	case tcell.KeyF6, tcell.KeyCtrlV:
 		if e.clipboard == nil {
