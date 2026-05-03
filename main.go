@@ -32,6 +32,7 @@ type Editor struct {
 	selActive     bool     // Auswahl aktiv
 	selAnchorX    int      // Auswahl-Anker Spalte
 	selAnchorY    int      // Auswahl-Anker Zeile
+	dragActive    bool     // Maus-Auswahl läuft
 	searchTerm    string   // Letzter Suchbegriff
 	prompt        promptKind
 	promptInput   []rune
@@ -230,6 +231,15 @@ func (e *Editor) selectedText() [][]rune {
 	return result
 }
 
+// extendSel setzt den Anker beim ersten Shift-Tastendruck und aktiviert die Auswahl
+func (e *Editor) extendSel() {
+	if !e.selActive {
+		e.selAnchorX = e.cursorX
+		e.selAnchorY = e.cursorY
+		e.selActive = true
+	}
+}
+
 func main() {
 	editor := &Editor{
 		lines:   [][]rune{{}},
@@ -302,21 +312,31 @@ func main() {
 				editor.HandleEvent(ev)
 			}
 		case *tcell.EventMouse:
+			col, row := ev.Position()
+			_, height := screen.Size()
 			if ev.Buttons() == tcell.Button1 {
-				col, row := ev.Position()
-				_, height := screen.Size()
 				if row >= 1 && row < height-1 {
-					editor.selActive = false
 					y := row - 1 + editor.scrollY
 					if y >= len(editor.lines) {
 						y = len(editor.lines) - 1
 					}
-					editor.cursorY = y
 					x := col
 					if x > len(editor.lines[y]) {
 						x = len(editor.lines[y])
 					}
+					if !editor.dragActive {
+						editor.selAnchorY = y
+						editor.selAnchorX = x
+						editor.selActive = true
+						editor.dragActive = true
+					}
+					editor.cursorY = y
 					editor.cursorX = x
+				}
+			} else if editor.dragActive {
+				editor.dragActive = false
+				if editor.cursorY == editor.selAnchorY && editor.cursorX == editor.selAnchorX {
+					editor.selActive = false
 				}
 			}
 		case *tcell.EventResize:
@@ -411,7 +431,9 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 	if e.selActive {
 		switch ev.Key() {
-		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyF5:
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyF5,
+			tcell.KeyLeft, tcell.KeyRight, tcell.KeyUp, tcell.KeyDown,
+			tcell.KeyHome, tcell.KeyEnd:
 			// diese Tasten verwalten die Auswahl selbst
 		default:
 			e.selActive = false
@@ -476,8 +498,18 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		}
 
 	case tcell.KeyHome:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			e.extendSel()
+		} else {
+			e.selActive = false
+		}
 		e.cursorX = 0
 	case tcell.KeyEnd:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			e.extendSel()
+		} else {
+			e.selActive = false
+		}
 		e.cursorX = len(e.lines[e.cursorY])
 
 	case tcell.KeyPgUp:
@@ -503,14 +535,29 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		}
 
 	case tcell.KeyLeft:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			e.extendSel()
+		} else {
+			e.selActive = false
+		}
 		if e.cursorX > 0 {
 			e.cursorX--
 		}
 	case tcell.KeyRight:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			e.extendSel()
+		} else {
+			e.selActive = false
+		}
 		if e.cursorX < len(e.lines[e.cursorY]) {
 			e.cursorX++
 		}
 	case tcell.KeyUp:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			e.extendSel()
+		} else {
+			e.selActive = false
+		}
 		if e.cursorY > 0 {
 			e.cursorY--
 			if e.cursorX > len(e.lines[e.cursorY]) {
@@ -518,6 +565,11 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 			}
 		}
 	case tcell.KeyDown:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			e.extendSel()
+		} else {
+			e.selActive = false
+		}
 		if e.cursorY < len(e.lines)-1 {
 			e.cursorY++
 			if e.cursorX > len(e.lines[e.cursorY]) {
