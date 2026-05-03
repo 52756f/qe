@@ -12,6 +12,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+const version = "0.2.0"
+
 type promptKind int
 
 const (
@@ -282,6 +284,11 @@ func main() {
 	editor := &Editor{
 		lines:   [][]rune{{}},
 		hlDirty: true,
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "-v" {
+		fmt.Println("qe " + version)
+		return
 	}
 
 	if len(os.Args) > 1 {
@@ -718,7 +725,7 @@ func (e *Editor) Draw() {
 	if e.dirty {
 		name += " *"
 	}
-	topMsg := fmt.Sprintf(" %s  Line %d/%d ", name, e.cursorY+1, len(e.lines))
+	topMsg := fmt.Sprintf(" qe %s  %s  Line %d/%d ", version, name, e.cursorY+1, len(e.lines))
 	drawBar(e.screen, 0, width, topMsg, barStyle)
 
 	// Untere Leiste
