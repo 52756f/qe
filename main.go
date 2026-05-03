@@ -287,6 +287,12 @@ func main() {
 			case tcell.KeyCtrlF:
 				editor.prompt = promptSearch
 				editor.promptInput = []rune(editor.searchTerm)
+			case tcell.KeyCtrlA:
+				editor.selActive = true
+				editor.selAnchorX = 0
+				editor.selAnchorY = 0
+				editor.cursorY = len(editor.lines) - 1
+				editor.cursorX = len(editor.lines[editor.cursorY])
 			default:
 				editor.HandleEvent(ev)
 			}
@@ -378,6 +384,15 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 
 // HandleEvent verarbeitet Tasteneingaben und ändert den Textpuffer
 func (e *Editor) HandleEvent(ev *tcell.EventKey) {
+	if e.selActive {
+		switch ev.Key() {
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune:
+			// diese Tasten verwalten die Auswahl selbst
+		default:
+			e.selActive = false
+		}
+	}
+
 	switch ev.Key() {
 	case tcell.KeyEnter:
 		currentLine := e.lines[e.cursorY]
@@ -393,6 +408,10 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		e.hlDirty = true
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if e.selActive {
+			e.deleteSelection()
+			return
+		}
 		if e.cursorX > 0 {
 			line := e.lines[e.cursorY]
 			e.lines[e.cursorY] = append(line[:e.cursorX-1], line[e.cursorX:]...)
@@ -411,6 +430,10 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		}
 
 	case tcell.KeyDelete:
+		if e.selActive {
+			e.deleteSelection()
+			return
+		}
 		line := e.lines[e.cursorY]
 		if e.cursorX < len(line) {
 			e.lines[e.cursorY] = append(line[:e.cursorX], line[e.cursorX+1:]...)
@@ -527,6 +550,9 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		e.hlDirty = true
 
 	case tcell.KeyRune:
+		if e.selActive {
+			e.deleteSelection()
+		}
 		ch := ev.Rune()
 		line := e.lines[e.cursorY]
 		e.lines[e.cursorY] = append(line[:e.cursorX], append([]rune{ch}, line[e.cursorX:]...)...)
