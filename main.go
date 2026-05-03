@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -237,6 +238,31 @@ func (e *Editor) extendSel() {
 		e.selAnchorX = e.cursorX
 		e.selAnchorY = e.cursorY
 		e.selActive = true
+	}
+}
+
+// writeOSC52 schreibt den Inhalt der Zwischenablage via OSC 52 in die Systemzwischenablage
+func (e *Editor) writeOSC52() {
+	if len(e.clipboard) == 0 {
+		return
+	}
+	var sb strings.Builder
+	for i, line := range e.clipboard {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(string(line))
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(sb.String()))
+	seq := "\033]52;c;" + encoded + "\007"
+	if tty, ok := e.screen.Tty(); ok {
+		tty.Write([]byte(seq))
+		return
+	}
+	// Fallback: direkt auf /dev/tty schreiben
+	if f, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		f.WriteString(seq)
+		f.Close()
 	}
 }
 
@@ -584,6 +610,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		} else {
 			e.clipboard = [][]rune{append([]rune{}, e.lines[e.cursorY]...)}
 		}
+		e.writeOSC52()
 
 	case tcell.KeyF6:
 		if e.clipboard == nil {
