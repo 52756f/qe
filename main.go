@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -241,7 +242,7 @@ func (e *Editor) extendSel() {
 	}
 }
 
-// writeClipboard schreibt den Inhalt der Zwischenablage in die Systemzwischenablage (xclip oder xsel)
+// writeClipboard schreibt den Inhalt der Zwischenablage in die Systemzwischenablage
 func (e *Editor) writeClipboard() {
 	if len(e.clipboard) == 0 {
 		return
@@ -254,6 +255,17 @@ func (e *Editor) writeClipboard() {
 		sb.WriteString(string(line))
 	}
 	text := sb.String()
+
+	// gtk3x Terminal: Text via Unix-Socket übergeben
+	if socketPath := os.Getenv("QE_CLIPBOARD_SOCKET"); socketPath != "" {
+		if conn, err := net.Dial("unix", socketPath); err == nil {
+			conn.Write([]byte(text))
+			conn.Close()
+			return
+		}
+	}
+
+	// Fallback: xclip oder xsel
 	for _, args := range [][]string{
 		{"xclip", "-selection", "clipboard"},
 		{"xsel", "--clipboard", "--input"},
