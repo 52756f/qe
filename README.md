@@ -6,6 +6,15 @@ A minimal terminal text editor written in Go.
 go install github.com/52756f/qe@latest
 ```
 
+Or clone and build manually (e.g. on a VPS):
+
+```bash
+git clone https://github.com/52756f/qe
+cd qe
+go build -buildvcs=false -o qe .
+sudo mv qe /usr/local/bin/
+```
+
 ## Features
 
 - Character insertion and deletion (Backspace with line-merge)
