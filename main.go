@@ -28,7 +28,10 @@ type Editor struct {
 	scrollY       int      // Erste sichtbare Zeile (vertikales Scrollen)
 	filename      string   // Geöffnete Datei (leer wenn keine)
 	dirty         bool     // Ungespeicherte Änderungen vorhanden
-	clipboard     []rune   // Kopierte Zeile (F5/F6)
+	clipboard     [][]rune // Kopierte Zeilen (F5/F6)
+	selActive     bool     // Auswahl aktiv
+	selAnchorX    int      // Auswahl-Anker Spalte
+	selAnchorY    int      // Auswahl-Anker Zeile
 	searchTerm    string   // Letzter Suchbegriff
 	prompt        promptKind
 	promptInput   []rune
@@ -165,6 +168,62 @@ func (e *Editor) searchFrom(term string, startY, startX int) bool {
 		}
 	}
 	return false
+}
+
+// selBounds gibt Start und Ende der Auswahl in Pufferkoordinaten zurück
+func (e *Editor) selBounds() (startY, startX, endY, endX int) {
+	ay, ax := e.selAnchorY, e.selAnchorX
+	cy, cx := e.cursorY, e.cursorX
+	if ay < cy || (ay == cy && ax <= cx) {
+		return ay, ax, cy, cx
+	}
+	return cy, cx, ay, ax
+}
+
+// isInSelection prüft ob Position (y,x) innerhalb der Auswahl liegt
+func (e *Editor) isInSelection(y, x int) bool {
+	sy, sx, ey, ex := e.selBounds()
+	if y < sy || y > ey {
+		return false
+	}
+	if y == sy && x < sx {
+		return false
+	}
+	if y == ey && x >= ex {
+		return false
+	}
+	return true
+}
+
+// deleteSelection löscht den ausgewählten Text und setzt den Cursor an den Auswahlstart
+func (e *Editor) deleteSelection() {
+	sy, sx, ey, ex := e.selBounds()
+	suffix := append([]rune{}, e.lines[ey][ex:]...)
+	e.lines[sy] = append(e.lines[sy][:sx], suffix...)
+	e.lines = append(e.lines[:sy+1], e.lines[ey+1:]...)
+	if len(e.lines) == 0 {
+		e.lines = [][]rune{{}}
+	}
+	e.cursorY = sy
+	e.cursorX = sx
+	e.selActive = false
+	e.dirty = true
+	e.hlDirty = true
+}
+
+// selectedText gibt den ausgewählten Text als Slice von Zeilen zurück
+func (e *Editor) selectedText() [][]rune {
+	sy, sx, ey, ex := e.selBounds()
+	if sy == ey {
+		return [][]rune{append([]rune{}, e.lines[sy][sx:ex]...)}
+	}
+	result := make([][]rune, 0, ey-sy+1)
+	result = append(result, append([]rune{}, e.lines[sy][sx:]...))
+	for y := sy + 1; y < ey; y++ {
+		result = append(result, append([]rune{}, e.lines[y]...))
+	}
+	result = append(result, append([]rune{}, e.lines[ey][:ex]...))
+	return result
 }
 
 func main() {
@@ -416,17 +475,39 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		}
 
 	case tcell.KeyF5:
-		e.clipboard = append([]rune{}, e.lines[e.cursorY]...)
+		if e.selActive {
+			e.clipboard = e.selectedText()
+			e.selActive = false
+		} else {
+			e.clipboard = [][]rune{append([]rune{}, e.lines[e.cursorY]...)}
+		}
 
 	case tcell.KeyF6:
 		if e.clipboard == nil {
 			break
 		}
-		newLine := append([]rune{}, e.clipboard...)
-		e.lines = append(e.lines, nil)
-		copy(e.lines[e.cursorY+1:], e.lines[e.cursorY:])
-		e.lines[e.cursorY] = newLine
-		e.cursorX = 0
+		if len(e.clipboard) == 1 {
+			newLine := append([]rune{}, e.clipboard[0]...)
+			e.lines = append(e.lines, nil)
+			copy(e.lines[e.cursorY+1:], e.lines[e.cursorY:])
+			e.lines[e.cursorY] = newLine
+			e.cursorX = 0
+		} else {
+			n := len(e.clipboard)
+			curLine := e.lines[e.cursorY]
+			before := append([]rune{}, curLine[:e.cursorX]...)
+			after := append([]rune{}, curLine[e.cursorX:]...)
+			newLines := make([][]rune, n)
+			newLines[0] = append(before, e.clipboard[0]...)
+			for i := 1; i < n-1; i++ {
+				newLines[i] = append([]rune{}, e.clipboard[i]...)
+			}
+			newLines[n-1] = append(append([]rune{}, e.clipboard[n-1]...), after...)
+			rest := append([][]rune{}, e.lines[e.cursorY+1:]...)
+			e.lines = append(e.lines[:e.cursorY], append(newLines, rest...)...)
+			e.cursorY += n - 1
+			e.cursorX = len(e.clipboard[n-1])
+		}
 		e.dirty = true
 		e.hlDirty = true
 
