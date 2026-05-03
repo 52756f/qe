@@ -1,8 +1,10 @@
 # qe
 
 A minimal terminal text editor written in Go.
-\n
+
+```bash
 go install github.com/52756f/qe@latest
+```
 
 ## Features
 
