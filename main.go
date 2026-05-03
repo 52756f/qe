@@ -391,9 +391,11 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 			}
 			e.promptInput = nil
 			e.prompt = promptNone
+			e.selActive = false
 		case tcell.KeyEscape:
 			e.promptInput = nil
 			e.prompt = promptNone
+			e.selActive = false
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			if len(e.promptInput) > 0 {
 				e.promptInput = e.promptInput[:len(e.promptInput)-1]
@@ -409,7 +411,7 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 	if e.selActive {
 		switch ev.Key() {
-		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter:
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete, tcell.KeyRune, tcell.KeyEnter, tcell.KeyF5:
 			// diese Tasten verwalten die Auswahl selbst
 		default:
 			e.selActive = false
