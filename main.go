@@ -257,6 +257,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Fehler beim Initialisieren des Terminals: %v\n", err)
 		os.Exit(1)
 	}
+	screen.EnableMouse()
 
 	editor.screen = screen
 	defer screen.Fini()
@@ -299,6 +300,24 @@ func main() {
 				editor.cursorX = len(editor.lines[editor.cursorY])
 			default:
 				editor.HandleEvent(ev)
+			}
+		case *tcell.EventMouse:
+			if ev.Buttons() == tcell.Button1 {
+				col, row := ev.Position()
+				_, height := screen.Size()
+				if row >= 1 && row < height-1 {
+					editor.selActive = false
+					y := row - 1 + editor.scrollY
+					if y >= len(editor.lines) {
+						y = len(editor.lines) - 1
+					}
+					editor.cursorY = y
+					x := col
+					if x > len(editor.lines[y]) {
+						x = len(editor.lines[y])
+					}
+					editor.cursorX = x
+				}
 			}
 		case *tcell.EventResize:
 			screen.Sync()
@@ -610,7 +629,7 @@ func (e *Editor) Draw() {
 	case promptSearch:
 		bottomMsg = " Suchen: " + string(e.promptInput)
 	default:
-		bottomMsg = " ^S Speichern   ^X Beenden   ^F Suchen   F5 Kopieren   F6 Einfügen   F8 Zeile löschen   Del Vorwärts löschen   Home Zeilenanfang   End Zeilenende   PgUp/PgDn Seite "
+		bottomMsg = " ^S Speichern   ^X Beenden   ^F Suchen   ^A Alles auswählen   F5 Kopieren   F6 Einfügen   F8 Zeile löschen   Del Vorwärts löschen   Home Zeilenanfang   End Zeilenende   PgUp/PgDn Seite "
 	}
 	drawBar(e.screen, height-1, width, bottomMsg, barStyle)
 
