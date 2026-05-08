@@ -21,12 +21,13 @@ sudo mv qe /usr/local/bin/
 - Enter to split lines
 - Arrow key navigation
 - **Ctrl+A** — select all with visual highlight
-- Selection-aware editing: copy (F5), delete, type-to-replace
+- Selection-aware editing: copy (Ctrl+C), delete, type-to-replace
 - Mouse click to reposition cursor and clear selection
 - Syntax highlighting via [chroma](https://github.com/alecthomas/chroma)
 - Search with **Ctrl+F**
-- Save with **Ctrl+S**, quit with **Ctrl+X**
-- Line copy/paste (F5/F6), line delete (F8)
+- Save with **Ctrl+S**, save as with **Ctrl+W**, quit with **Ctrl+X**
+- Line copy/paste (Ctrl+C / Ctrl+V), line delete (F8)
+- Undo with **Ctrl+Z**
 - Page Up/Down, Home/End
 - Cross-platform terminal I/O via [tcell](https://github.com/gdamore/tcell)
 
@@ -36,10 +37,12 @@ sudo mv qe /usr/local/bin/
 |-----|--------|
 | Ctrl+A | Select all |
 | Ctrl+S | Save |
+| Ctrl+W | Save as |
 | Ctrl+X | Quit |
+| Ctrl+Z | Undo |
 | Ctrl+F | Search |
-| F5 | Copy line (or selection) |
-| F6 | Paste |
+| Ctrl+C | Copy line (or selection) |
+| Ctrl+V | Paste |
 | F8 | Delete line |
 | Backspace / Delete | Delete character (or selection) |
 | Arrow keys | Move cursor |

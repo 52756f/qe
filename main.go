@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -15,6 +16,8 @@ import (
 const version = "0.3.0"
 
 const tabWidth = 4
+
+const highlightDebounce = 100 * time.Millisecond
 
 type undoState struct {
 	lines   [][]rune
@@ -29,6 +32,7 @@ const (
 	promptFilename            // Strg+S ohne Dateiname
 	promptSaveExit            // Strg+X mit ungespeichertem Inhalt
 	promptSearch              // Strg+F Suche
+	promptSaveAs              // F12 Speichern unter
 )
 
 // Editor repräsentiert den Zustand unseres Texteditors
@@ -51,6 +55,7 @@ type Editor struct {
 	exitAfterSave bool
 	hlStyles      [][]tcell.Style // Syntax-Highlighting-Stile pro Zeichen
 	hlDirty       bool            // Highlighting muss neu berechnet werden
+	hlDebounce    time.Time       // Zeitstempel der letzten Änderung (für Debounce)
 	undoStack     []undoState
 	lastWasRune   bool // letzter Edit war Zeicheneingabe (für Undo-Gruppierung)
 }
@@ -147,6 +152,14 @@ func calcGutterWidth(lineCount int) int {
 	return len(fmt.Sprintf("%d", lineCount)) + 1
 }
 
+// markChanged markiert den Puffer als geändert und merkt den Zeitstempel
+// für das Highlighting-Debounce
+func (e *Editor) markChanged() {
+	e.dirty = true
+	e.hlDirty = true
+	e.hlDebounce = time.Now()
+}
+
 func (e *Editor) pushUndo() {
 	cp := make([][]rune, len(e.lines))
 	for i, line := range e.lines {
@@ -167,8 +180,7 @@ func (e *Editor) applyUndo() {
 	e.lines = s.lines
 	e.cursorX = s.cursorX
 	e.cursorY = s.cursorY
-	e.dirty = true
-	e.hlDirty = true
+	e.markChanged()
 	e.selActive = false
 	e.lastWasRune = false
 }
@@ -256,8 +268,7 @@ func (e *Editor) deleteSelection() {
 	e.cursorY = sy
 	e.cursorX = sx
 	e.selActive = false
-	e.dirty = true
-	e.hlDirty = true
+	e.markChanged()
 }
 
 // selectedText gibt den ausgewählten Text als Slice von Zeilen zurück
@@ -381,10 +392,16 @@ func main() {
 				}
 			case tcell.KeyCtrlS:
 				if editor.filename == "" {
-					editor.prompt = promptFilename
+					editor.prompt = promptSaveAs
+					editor.promptInput = nil
 				} else {
 					editor.saveFile()
 				}
+			case tcell.KeyCtrlW:
+				editor.prompt = promptSaveAs
+				editor.promptInput = []rune(editor.filename)
+			case tcell.KeyCtrlE:
+				editor.HandleEvent(ev)
 			case tcell.KeyCtrlF:
 				editor.prompt = promptSearch
 				editor.promptInput = []rune(editor.searchTerm)
@@ -452,7 +469,7 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 			switch ev.Rune() {
 			case 'j', 'J', 'y', 'Y':
 				if e.filename == "" {
-					e.prompt = promptFilename
+					e.prompt = promptSaveAs
 					e.exitAfterSave = true
 				} else {
 					e.saveFile()
@@ -473,6 +490,34 @@ func (e *Editor) HandlePrompt(ev *tcell.EventKey) bool {
 				e.promptInput = nil
 				e.prompt = promptNone
 				e.hlDirty = true
+				e.hlDebounce = time.Now()
+				e.saveFile()
+				if e.exitAfterSave {
+					e.exitAfterSave = false
+					return true
+				}
+			}
+		case tcell.KeyEscape:
+			e.promptInput = nil
+			e.prompt = promptNone
+			e.exitAfterSave = false
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			if len(e.promptInput) > 0 {
+				e.promptInput = e.promptInput[:len(e.promptInput)-1]
+			}
+		case tcell.KeyRune:
+			e.promptInput = append(e.promptInput, ev.Rune())
+		}
+
+	case promptSaveAs:
+		switch ev.Key() {
+		case tcell.KeyEnter:
+			if len(e.promptInput) > 0 {
+				e.filename = string(e.promptInput)
+				e.promptInput = nil
+				e.prompt = promptNone
+				e.hlDirty = true
+				e.hlDebounce = time.Now()
 				e.saveFile()
 				if e.exitAfterSave {
 					e.exitAfterSave = false
@@ -553,8 +598,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		e.lines[e.cursorY+1] = rightPart
 		e.cursorY++
 		e.cursorX = 0
-		e.dirty = true
-		e.hlDirty = true
+		e.markChanged()
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		e.pushUndo()
@@ -567,8 +611,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 			line := e.lines[e.cursorY]
 			e.lines[e.cursorY] = append(line[:e.cursorX-1], line[e.cursorX:]...)
 			e.cursorX--
-			e.dirty = true
-			e.hlDirty = true
+			e.markChanged()
 		} else if e.cursorY > 0 {
 			prevLine := e.lines[e.cursorY-1]
 			currentLine := e.lines[e.cursorY]
@@ -576,8 +619,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 			e.cursorY--
 			e.lines[e.cursorY] = append(prevLine, currentLine...)
 			e.lines = append(e.lines[:e.cursorY+1], e.lines[e.cursorY+2:]...)
-			e.dirty = true
-			e.hlDirty = true
+			e.markChanged()
 		}
 
 	case tcell.KeyDelete:
@@ -590,14 +632,12 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		line := e.lines[e.cursorY]
 		if e.cursorX < len(line) {
 			e.lines[e.cursorY] = append(line[:e.cursorX], line[e.cursorX+1:]...)
-			e.dirty = true
-			e.hlDirty = true
+			e.markChanged()
 		} else if e.cursorY < len(e.lines)-1 {
 			next := e.lines[e.cursorY+1]
 			e.lines[e.cursorY] = append(line, next...)
 			e.lines = append(e.lines[:e.cursorY+1], e.lines[e.cursorY+2:]...)
-			e.dirty = true
-			e.hlDirty = true
+			e.markChanged()
 		}
 
 	case tcell.KeyHome:
@@ -717,8 +757,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 			e.cursorY += n - 1
 			e.cursorX = len(e.clipboard[n-1])
 		}
-		e.dirty = true
-		e.hlDirty = true
+		e.markChanged()
 
 	case tcell.KeyF8:
 		e.pushUndo()
@@ -734,8 +773,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		if e.cursorX > len(e.lines[e.cursorY]) {
 			e.cursorX = len(e.lines[e.cursorY])
 		}
-		e.dirty = true
-		e.hlDirty = true
+		e.markChanged()
 
 	case tcell.KeyTab:
 		if !e.lastWasRune {
@@ -753,8 +791,7 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		line := e.lines[e.cursorY]
 		e.lines[e.cursorY] = append(line[:e.cursorX], append(ins, line[e.cursorX:]...)...)
 		e.cursorX += spaces
-		e.dirty = true
-		e.hlDirty = true
+		e.markChanged()
 
 	case tcell.KeyRune:
 		if !e.lastWasRune {
@@ -768,14 +805,13 @@ func (e *Editor) HandleEvent(ev *tcell.EventKey) {
 		line := e.lines[e.cursorY]
 		e.lines[e.cursorY] = append(line[:e.cursorX], append([]rune{ch}, line[e.cursorX:]...)...)
 		e.cursorX++
-		e.dirty = true
-		e.hlDirty = true
+		e.markChanged()
 	}
 }
 
 // Draw zeichnet den Text und den Cursor auf den Bildschirm
 func (e *Editor) Draw() {
-	if e.hlDirty {
+	if e.hlDirty && time.Since(e.hlDebounce) >= highlightDebounce {
 		e.buildHighlights()
 	}
 
@@ -811,10 +847,12 @@ func (e *Editor) Draw() {
 		bottomMsg = " Änderungen speichern? [J=Ja  N=Nein  Esc=Abbrechen] "
 	case promptFilename:
 		bottomMsg = " Dateiname: " + string(e.promptInput)
+	case promptSaveAs:
+		bottomMsg = " Speichern unter: " + string(e.promptInput)
 	case promptSearch:
 		bottomMsg = " Suchen: " + string(e.promptInput)
 	default:
-		bottomMsg = " ^S Speichern   ^X Beenden   ^Z Rückgängig   ^F Suchen   ^A Alles auswählen   ^C Kopieren   ^V Einfügen   F8 Zeile löschen   Home/End   PgUp/PgDn "
+		bottomMsg = " ^S Speichern   ^W Speichern unter   ^X Beenden   ^Z Rückgängig   ^F Suchen   ^A Alles auswählen   ^C Kopieren   ^V Einfügen   F8 Zeile löschen "
 	}
 	drawBar(e.screen, height-1, width, bottomMsg, barStyle)
 
@@ -850,6 +888,13 @@ func (e *Editor) Draw() {
 	switch e.prompt {
 	case promptFilename:
 		cx := len([]rune(" Dateiname: ")) + len(e.promptInput)
+		if cx < width {
+			e.screen.ShowCursor(cx, height-1)
+		} else {
+			e.screen.HideCursor()
+		}
+	case promptSaveAs:
+		cx := len([]rune(" Speichern unter: ")) + len(e.promptInput)
 		if cx < width {
 			e.screen.ShowCursor(cx, height-1)
 		} else {
