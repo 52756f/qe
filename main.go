@@ -13,7 +13,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 const tabWidth = 4
 
